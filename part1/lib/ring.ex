@@ -1,39 +1,43 @@
-defmodule Ringee do
+defmodule Ring do
+  @moduledoc """
+  Every joining process becomes a leader.
+  Leader is responsible for passing "next_pid" to joining process.
+  """
 
   @me __MODULE__
   @leader_name :leader_proc
+  @interval 2000
 
   def run do
-    {pid, _} = spawn_monitor(@me, :loop, [])
+    pid = spawn(@me, :loop, [])
+    send(pid, {:tick})
     Process.register(pid, @leader_name)
   end
 
   def join do
-    {pid, ref} = spawn_monitor(@me, :loop, [])
+    pid = spawn(@me, :loop, [])
     send @leader_name, {:join, pid}
   end
 
-  def loop(own_pid, next, leader_pid) do
+  def loop do
+    loop(self(), self())
+  end
+
+  def loop(own_pid, next) do
     receive do
-      {:DOWN, _, :process, _, reason} ->
-        IO.puts("Leader is dead. Reason: #{reason}")
-
       {:join, new_pid} ->
-        send(self(), {:set_next, new_pid})
         send(new_pid, {:set_next, next})
+        Process.unregister(@leader_name)
+        Process.register(new_pid, @leader_name)
+        loop(own_pid, new_pid)
 
-      {:join, _} ->
-        IO.puts("I should not be called")
-
-      {:set_next, new_next} ->
-        loop(own_pid, new_next, leader_pid)
+      {:set_next, next_pid} ->
+        loop(own_pid, next_pid)
 
       {:tick} ->
-        IO.puts("pid: #{own_pid} received tick")
-        :timer.sleep(2 * 1000)
-        IO.puts("tick sent to pid: #{next}")
-        send(next, {:tick})
-        loop(own_pid, next, leader_pid)
+        IO.puts("#{inspect own_pid} received tick")
+        :erlang.send_after(@interval, next, {:tick})
+        loop(own_pid, next)
     end
   end
 end
